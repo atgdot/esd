@@ -1,48 +1,71 @@
-#include "lpc214x.h"  // Correct include for LPC2148 specific definitions
-#include <stdint.h>   // Include standard integer types
-#include <math.h>     // Include math functions
+#include "lpc2148.h"
+#include "stdint.h"
 
-#define PI 3.14159265358979323846
-#define SAMPLING_RATE 1000 // Sampling rate in Hz
-#define CARRIER_FREQ 100    // Carrier frequency in Hz
-#define MESSAGE_FREQ 10     // Message frequency in Hz
+void delay(unsigned int c)
 
-void delay_us(uint32_t us){
-    uint32_t i;
-    for(i = 0; i < us * 15; i++); // Rough estimate for 1 microsecond delay
+{
+unsigned int a;
+for(a=1;a<=100000;a++);
+}
+
+#define I2EN (1<<6) //Enable/Disable bit
+#define STA  (1<<5) //Start Set/Clear bit
+#define STO  (1<<4) //Stop bit
+#define SI   (1<<3) //Serial Interrupt Flag Clear bit
+#define AA   (1<<2) //Assert Acknowledge Set/Clear bit
+void waitforsi (void)
+{
+	while (!(I2C0CONSET & SI));  //while interrupt in not set /wait till SI goes 1
+}
+
+
+void i2c_send_start (void)
+{
+	I2C0CONSET = STA;  // set start bit
+	waitforsi();  //wait for interrupt to set it will transmit previous condition
+}
+
+void i2c_write (unsigned char data)
+{									     
+	I2C0DAT = data;  // load data
+	I2C0CONCLR = SI|STA|AA;  //clear interrupt, start, ack
+	waitforsi ();  // wait for condition  to transmit
+}
+
+
+void i2c_send_stop (void)
+{
+	I2C0CONCLR = AA|SI;  // clear ack and interrupt
+	I2C0CONSET = STO;  // send stop
+}
+
+void i2c_init (void)
+{
+	
+	I2C0SCLH = 75;  // 15MHz/150 = 100000 speed i2c
+	I2C0SCLL = 75;
+	I2C0CONCLR = STA|STO|AA|SI;  // clear all bits
+	I2C0CONSET = I2EN;  // enable bit set
+}
+
+void lcd_write_data (int data)
+{  unsigned char address = 0x40;
+  unsigned char a[]={0x3f,0x6,0x5b,0x4f,0x66,0x6d,0x7d,0x7,0x7f,0x6f,0x77,0x7c,0x39,0x5e ,0x79 ,0x71};
+
+	i2c_send_start();
+	i2c_write (address);
+	i2c_write (a[data]);  
+	i2c_send_stop();
 }
 
 int main(){
-    uint16_t sample;
-    float carrier, message, dsbsc;
-    float carrier_phase = 0, message_phase = 0;
-    float carrier_step = 2 * PI * CARRIER_FREQ / SAMPLING_RATE;
-    float message_step = 2 * PI * MESSAGE_FREQ / SAMPLING_RATE;
+  int l;
+  PINSEL0 = (1<<4)|(1<<6);  // for i2c line
+  i2c_init ();
+while(1){
+  for(l=0;l<=15;l++){
+    lcd_write_data(l);
+    delay(2);}
 
-    // Configure DAC pin
-    PINSEL1 |= 0x00080000; // Select DAC function for P0.25
-
-    while(1){
-        for(sample = 0; sample < SAMPLING_RATE; sample++){
-            // Generate carrier and message signals
-            carrier = sin(carrier_phase);
-            message = sin(message_phase);
-
-            // Generate DSBSC signal by multiplying carrier and message
-            dsbsc = carrier * message;
-
-            // Scale and shift the signal to fit DAC range (0 to 1023)
-            DACR = ((uint32_t)((dsbsc + 1.0) * 511.5)) << 6;
-
-            // Increment phases
-            carrier_phase += carrier_step;
-            if(carrier_phase >= 2 * PI) carrier_phase -= 2 * PI;
-
-            message_phase += message_step;
-            if(message_phase >= 2 * PI) message_phase -= 2 * PI;
-
-            // Delay to achieve the sampling rate
-            delay_us(1000); // Delay to achieve a 1 kHz sampling rate
-        }
-    }
+     }
 }
